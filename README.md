@@ -1,13 +1,13 @@
 # Atã
 
-Aplicativo multiplataforma para montar fichas de academia, registrar séries e acompanhar a evolução da força. A mesma conta funcionará em Android, iOS e web, inclusive durante treinos sem conexão.
+Aplicativo multiplataforma para montar fichas de academia, registrar series e acompanhar a evolucao da forca. A mesma conta funcionara em Android, iOS e web, inclusive durante treinos sem conexao.
 
-## Base técnica
+## Base tecnica
 
-- Expo SDK 56, React Native 0.85 e TypeScript, compatíveis com a versão atual do Expo Go.
-- Um código compartilhado entre Android, iOS e web, com adaptações pontuais por plataforma.
-- Supabase planejado para autenticação, PostgreSQL e arquivos.
-- Persistência local e fila de sincronização planejadas para o modo offline-first.
+- Expo SDK 56, React Native 0.85 e TypeScript, compativeis com a versao atual do Expo Go.
+- Um codigo compartilhado entre Android, iOS e web, com adaptacoes pontuais por plataforma.
+- Supabase planejado para autenticacao, PostgreSQL e arquivos.
+- Persistencia local e fila de sincronizacao planejadas para o modo offline-first.
 
 ## Executar
 
@@ -26,13 +26,29 @@ npm run ios
 npm run web
 ```
 
-## Verificações
+## Verificacoes
 
 ```bash
 npm run typecheck
 npm run build:web
 ```
 
+## Validacao automatica no GitHub
+
+O repositorio executa uma verificacao de CI em `push` e `pull_request`.
+
+A pipeline roda nesta ordem:
+
+```bash
+npm run typecheck
+npx expo-doctor
+npm run build:web
+```
+
+O `Expo Doctor` ajuda a identificar incompatibilidades entre dependencias e a versao do SDK Expo antes de um merge.
+
+Pull requests so devem ser aprovados depois que o workflow passar sem erros.
+
 ## Estado atual
 
-Este primeiro marco contém a fundação Expo, a identidade visual inicial e a tela pública de entrada. As regras confirmadas do produto estão documentadas em [`docs/MVP.md`](docs/MVP.md).
+Este primeiro marco contem a fundacao Expo, a identidade visual inicial e a tela publica de entrada. As regras confirmadas do produto estao documentadas em [`docs/MVP.md`](docs/MVP.md).
