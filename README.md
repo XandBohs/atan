@@ -4,18 +4,18 @@ Aplicativo multiplataforma para montar fichas de academia, registrar séries e a
 
 ## Base técnica
 
-- Expo SDK 57, React Native 0.86 e TypeScript.
+- Expo SDK 56, React Native 0.85 e TypeScript, compatíveis com a versão atual do Expo Go.
 - Um código compartilhado entre Android, iOS e web, com adaptações pontuais por plataforma.
 - Supabase planejado para autenticação, PostgreSQL e arquivos.
 - Persistência local e fila de sincronização planejadas para o modo offline-first.
 
 ## Executar
 
-Requer Node.js 22.13 ou superior.
+Requer Node.js 20.19 ou superior.
 
 ```bash
 npm install
-npm run web
+npm run dev
 ```
 
 Outros alvos:
@@ -23,6 +23,7 @@ Outros alvos:
 ```bash
 npm run android
 npm run ios
+npm run web
 ```
 
 ## Verificações

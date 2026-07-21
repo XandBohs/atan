@@ -5,7 +5,11 @@
     "description": "Registre seus treinos e acompanhe a evolução da sua força.",
     "version": "0.1.0",
     "orientation": "portrait",
-    "platforms": ["android", "ios", "web"],
+    "platforms": [
+      "android",
+      "ios",
+      "web"
+    ],
     "scheme": "atan",
     "githubUrl": "https://github.com/XandBohs/atan",
     "icon": "./assets/app-icon.png",
@@ -27,6 +31,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-status-bar"
+    ]
   }
 }
