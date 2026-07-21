@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Atã",
+    "slug": "atan",
+    "description": "Registre seus treinos e acompanhe a evolução da sua força.",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["android", "ios", "web"],
+    "scheme": "atan",
+    "githubUrl": "https://github.com/XandBohs/atan",
+    "icon": "./assets/app-icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0C0A",
+    "primaryColor": "#E34213",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "br.com.atan.app"
+    },
+    "android": {
+      "package": "br.com.atan.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0C0A",
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/monochrome-icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
