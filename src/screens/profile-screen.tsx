@@ -11,7 +11,7 @@ import {
   typography,
 } from '../design-system';
 
-export function ProfileScreen({ isWide, onLogout }: { isWide: boolean; onLogout: () => Promise<void> }) {
+export function ProfileScreen({ email, isWide, onLogout }: { email: string; isWide: boolean; onLogout: () => Promise<void> }) {
   const [showSettings, setShowSettings] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -25,9 +25,9 @@ export function ProfileScreen({ isWide, onLogout }: { isWide: boolean; onLogout:
       <View style={[styles.profileHeader, isWide && styles.profileHeaderWide]}>
         <View style={styles.avatar}><Text style={styles.avatarText}>AD</Text></View>
         <View style={styles.profileIdentity}>
-          <Text style={styles.kicker}>PERFIL DE DEMONSTRAÇÃO</Text>
-          <Text style={styles.profileName}>Administrador</Text>
-          <Text style={styles.profileEmail}>admin@admin</Text>
+          <Text style={styles.kicker}>PERFIL PESSOAL</Text>
+          <Text style={styles.profileName}>{email.split('@')[0] || 'Atleta'}</Text>
+          <Text style={styles.profileEmail}>{email}</Text>
         </View>
         <Button
           compact

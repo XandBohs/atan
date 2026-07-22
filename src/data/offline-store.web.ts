@@ -24,6 +24,7 @@ type StoredWorkoutExercise = { id: string; sessionId: string; exerciseId: string
 type StoredWorkoutSet = WorkoutSet & { workoutExerciseId: string } & SyncMetadata;
 type StoredDatabase = {
   deviceId: string | null;
+  authUserId?: string | null;
   routines: StoredRoutine[];
   routineExercises: StoredRoutineExercise[];
   routineSets: StoredRoutineSet[];
@@ -46,7 +47,7 @@ const catalogEntries: Array<[string, string, string, string | null]> = [
 ];
 const catalog: Exercise[] = catalogEntries.map(([suffix, name, mainMuscle, equipment]) => ({ id: `10000000-0000-4000-8000-000000000${suffix}`, name, mainMuscle, equipment }));
 
-const emptyDatabase = (): StoredDatabase => ({ deviceId: null, routines: [], routineExercises: [], routineSets: [], sessions: [], workoutExercises: [], workoutSets: [], syncOperations: [] });
+const emptyDatabase = (): StoredDatabase => ({ deviceId: null, authUserId: null, routines: [], routineExercises: [], routineSets: [], sessions: [], workoutExercises: [], workoutSets: [], syncOperations: [] });
 
 async function readDatabase() {
   const value = await AsyncStorage.getItem(STORAGE_KEY);
@@ -84,6 +85,20 @@ export async function getDeviceId() {
     await writeDatabase(database);
   }
   return database.deviceId;
+}
+
+export async function prepareOfflineStoreForUser(userId: string) {
+  const database = await readDatabase();
+  if (database.authUserId === userId) return;
+  database.authUserId = userId;
+  database.routines = [];
+  database.routineExercises = [];
+  database.routineSets = [];
+  database.sessions = [];
+  database.workoutExercises = [];
+  database.workoutSets = [];
+  database.syncOperations = [];
+  await writeDatabase(database);
 }
 
 export async function listExercises() {

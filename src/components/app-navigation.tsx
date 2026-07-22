@@ -102,7 +102,7 @@ export function AppHeader({ activeTab }: { activeTab: AppTab }) {
       </View>
       <View style={styles.demoPill}>
         <View style={styles.demoDot} />
-        <Text style={styles.demoPillText}>DEMONSTRAÇÃO</Text>
+        <Text style={styles.demoPillText}>CONTA ATIVA</Text>
       </View>
     </View>
   );

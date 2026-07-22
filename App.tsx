@@ -1,8 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Animated, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from './utils/supabase/client';
 import { AppHeader, BottomNavigation, SideNavigation } from './src/components/app-navigation';
 import {
   completeWorkoutSession,
@@ -13,6 +14,7 @@ import {
   listExercises,
   listHistory,
   listRoutines,
+  prepareOfflineStoreForUser,
   saveWorkoutDraft,
   startWorkoutSession,
   updateWorkoutSet,
@@ -28,8 +30,6 @@ import type { AppTab } from './src/navigation/tabs';
 import { useSectionNavigation } from './src/navigation/use-section-navigation';
 import { HistoryScreen, HomeScreen, LoginScreen, ProfileScreen, RoutinesScreen, WorkoutScreen } from './src/screens';
 
-const SESSION_KEY = '@ata:demo-session';
-
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -42,7 +42,7 @@ function AppContent() {
   const { width } = useWindowDimensions();
   const isWide = width >= sizes.breakpointWide;
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('inicio');
   const [routines, setRoutines] = useState<RoutineSummary[]>([]);
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -57,12 +57,33 @@ function AppContent() {
   });
 
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(SESSION_KEY), initializeOfflineStore()])
-      .then(async ([value]) => {
-        setIsAuthenticated(value === 'authenticated');
+    let isMounted = true;
+
+    async function syncSession(nextSession: Session | null) {
+      if (!isMounted) return;
+      setSession(nextSession);
+      if (nextSession?.user.id) {
+        await prepareOfflineStoreForUser(nextSession.user.id);
         await refreshLocalData();
-      })
-      .finally(() => setIsLoading(false));
+      }
+    }
+
+    async function initialize() {
+      await initializeOfflineStore();
+      const { data } = await supabase.auth.getSession();
+      await syncSession(data.session);
+      if (isMounted) setIsLoading(false);
+    }
+
+    void initialize();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      void syncSession(nextSession);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function refreshLocalData() {
@@ -75,16 +96,11 @@ function AppContent() {
     setActiveWorkout(nextActiveWorkout);
   }
 
-  async function handleLogin() {
-    await AsyncStorage.setItem(SESSION_KEY, 'authenticated');
-    await refreshLocalData();
-    setIsAuthenticated(true);
-  }
-
   async function handleLogout() {
-    await AsyncStorage.removeItem(SESSION_KEY);
+    await supabase.auth.signOut();
     setActiveTab('inicio');
-    setIsAuthenticated(false);
+    setActiveWorkout(null);
+    setIsWorkoutOpen(false);
   }
 
   async function handleCreateRoutine(input: CreateRoutineInput) {
@@ -131,8 +147,8 @@ function AppContent() {
     );
   }
 
-  if (!isAuthenticated) {
-    return <LoginScreen isWide={isWide} onLogin={handleLogin} />;
+  if (!session) {
+    return <LoginScreen isWide={isWide} />;
   }
 
   if (activeWorkout && isWorkoutOpen) {
@@ -176,7 +192,7 @@ function AppContent() {
             ) : null}
             {activeTab === 'fichas' ? <RoutinesScreen exercises={exercises} isWide={isWide} onCreateRoutine={handleCreateRoutine} routines={routines} /> : null}
             {activeTab === 'historico' ? <HistoryScreen isWide={isWide} sessions={history} /> : null}
-            {activeTab === 'perfil' ? <ProfileScreen isWide={isWide} onLogout={handleLogout} /> : null}
+            {activeTab === 'perfil' ? <ProfileScreen email={session.user.email ?? ''} isWide={isWide} onLogout={handleLogout} /> : null}
           </ScrollView>
         </Animated.View>
 
