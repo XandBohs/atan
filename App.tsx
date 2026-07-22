@@ -4,10 +4,29 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Animated, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader, BottomNavigation, SideNavigation } from './src/components/app-navigation';
+import {
+  completeWorkoutSession,
+  createRoutine,
+  getActiveWorkoutSession,
+  getWorkoutSession,
+  initializeOfflineStore,
+  listExercises,
+  listHistory,
+  listRoutines,
+  saveWorkoutDraft,
+  startWorkoutSession,
+  updateWorkoutSet,
+  type CreateRoutineInput,
+  type Exercise,
+  type HistoryEntry,
+  type RoutineSummary,
+  type UpdateWorkoutSetInput,
+  type WorkoutSession,
+} from './src/data/offline-store';
 import { colors, sizes, spacing } from './src/design-system';
 import type { AppTab } from './src/navigation/tabs';
 import { useSectionNavigation } from './src/navigation/use-section-navigation';
-import { HistoryScreen, HomeScreen, LoginScreen, ProfileScreen, RoutinesScreen } from './src/screens';
+import { HistoryScreen, HomeScreen, LoginScreen, ProfileScreen, RoutinesScreen, WorkoutScreen } from './src/screens';
 
 const SESSION_KEY = '@ata:demo-session';
 
@@ -25,6 +44,11 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>('inicio');
+  const [routines, setRoutines] = useState<RoutineSummary[]>([]);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [activeWorkout, setActiveWorkout] = useState<WorkoutSession | null>(null);
+  const [isWorkoutOpen, setIsWorkoutOpen] = useState(false);
   const { animatedStyle, navigateTo, panHandlers } = useSectionNavigation({
     activeTab,
     isWide,
@@ -33,13 +57,27 @@ function AppContent() {
   });
 
   useEffect(() => {
-    AsyncStorage.getItem(SESSION_KEY)
-      .then((value) => setIsAuthenticated(value === 'authenticated'))
+    Promise.all([AsyncStorage.getItem(SESSION_KEY), initializeOfflineStore()])
+      .then(async ([value]) => {
+        setIsAuthenticated(value === 'authenticated');
+        await refreshLocalData();
+      })
       .finally(() => setIsLoading(false));
   }, []);
 
+  async function refreshLocalData() {
+    const [nextRoutines, nextExercises, nextHistory, nextActiveWorkout] = await Promise.all([
+      listRoutines(), listExercises(), listHistory(), getActiveWorkoutSession(),
+    ]);
+    setRoutines(nextRoutines);
+    setExercises(nextExercises);
+    setHistory(nextHistory);
+    setActiveWorkout(nextActiveWorkout);
+  }
+
   async function handleLogin() {
     await AsyncStorage.setItem(SESSION_KEY, 'authenticated');
+    await refreshLocalData();
     setIsAuthenticated(true);
   }
 
@@ -47,6 +85,41 @@ function AppContent() {
     await AsyncStorage.removeItem(SESSION_KEY);
     setActiveTab('inicio');
     setIsAuthenticated(false);
+  }
+
+  async function handleCreateRoutine(input: CreateRoutineInput) {
+    await createRoutine(input);
+    await refreshLocalData();
+  }
+
+  async function handleStartWorkout() {
+    const routine = routines[0];
+    if (!routine) return;
+    const sessionId = await startWorkoutSession(routine.id);
+    const session = await getWorkoutSession(sessionId);
+    setActiveWorkout(session);
+    setIsWorkoutOpen(true);
+  }
+
+  async function handleSaveWorkoutSet(setId: string, input: UpdateWorkoutSetInput) {
+    await updateWorkoutSet(setId, input);
+    if (activeWorkout) setActiveWorkout(await getWorkoutSession(activeWorkout.id));
+  }
+
+  async function handleCompleteWorkout() {
+    if (!activeWorkout) return;
+    await completeWorkoutSession(activeWorkout.id);
+    await refreshLocalData();
+    setActiveWorkout(null);
+    setIsWorkoutOpen(false);
+    setActiveTab('historico');
+  }
+
+  async function handleSaveWorkoutDraft() {
+    if (!activeWorkout) return;
+    await saveWorkoutDraft(activeWorkout.id);
+    await refreshLocalData();
+    setIsWorkoutOpen(false);
   }
 
   if (isLoading) {
@@ -62,6 +135,23 @@ function AppContent() {
     return <LoginScreen isWide={isWide} onLogin={handleLogin} />;
   }
 
+  if (activeWorkout && isWorkoutOpen) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="light" />
+        <View style={styles.workoutShell}>
+          <WorkoutScreen
+            isWide={isWide}
+            onClose={handleSaveWorkoutDraft}
+            onComplete={handleCompleteWorkout}
+            onSaveSet={handleSaveWorkoutSet}
+            session={activeWorkout}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
@@ -74,9 +164,18 @@ function AppContent() {
         >
           <AppHeader activeTab={activeTab} />
           <ScrollView contentContainerStyle={styles.content}>
-            {activeTab === 'inicio' ? <HomeScreen isWide={isWide} onNavigate={navigateTo} /> : null}
-            {activeTab === 'fichas' ? <RoutinesScreen isWide={isWide} /> : null}
-            {activeTab === 'historico' ? <HistoryScreen isWide={isWide} /> : null}
+            {activeTab === 'inicio' ? (
+              <HomeScreen
+                activeSession={activeWorkout}
+                isWide={isWide}
+                onNavigate={navigateTo}
+                onResumeWorkout={() => setIsWorkoutOpen(true)}
+                onStartWorkout={handleStartWorkout}
+                routine={routines[0] ?? null}
+              />
+            ) : null}
+            {activeTab === 'fichas' ? <RoutinesScreen exercises={exercises} isWide={isWide} onCreateRoutine={handleCreateRoutine} routines={routines} /> : null}
+            {activeTab === 'historico' ? <HistoryScreen isWide={isWide} sessions={history} /> : null}
             {activeTab === 'perfil' ? <ProfileScreen isWide={isWide} onLogout={handleLogout} /> : null}
           </ScrollView>
         </Animated.View>
@@ -93,6 +192,7 @@ const styles = StyleSheet.create({
   appShell: { flex: 1, overflow: 'hidden', backgroundColor: colors.background },
   appShellWide: { flexDirection: 'row' },
   mainArea: { flex: 1, minWidth: 0 },
+  workoutShell: { flex: 1, maxWidth: sizes.contentMaxWidth, alignSelf: 'center', width: '100%', padding: spacing.lg },
   content: {
     flexGrow: 1,
     maxWidth: sizes.contentMaxWidth,

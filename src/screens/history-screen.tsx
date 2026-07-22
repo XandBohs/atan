@@ -1,61 +1,64 @@
 import { StyleSheet, Text, View } from 'react-native';
-import {
-  Button,
-  colors,
-  fontFamilies,
-  Metric,
-  ScreenHeading,
-  SectionTitle,
-  spacing,
-  Surface,
-  typography,
-} from '../design-system';
-import { demoHistory } from '../data/demo-data';
+import { colors, fontFamilies, Metric, ScreenHeading, SectionTitle, spacing, Surface, typography } from '../design-system';
+import type { HistoryEntry } from '../data/offline-store';
 
-export function HistoryScreen({ isWide }: { isWide: boolean }) {
+export function HistoryScreen({ isWide, sessions }: { isWide: boolean; sessions: HistoryEntry[] }) {
+  const totalVolume = sessions.reduce((total, session) => total + session.volumeKg, 0);
+  const totalSeconds = sessions.reduce((total, session) => total + (session.durationSeconds ?? 0), 0);
+
   return (
     <View style={styles.screen}>
-      <ScreenHeading kicker="JULHO DE 2026">
-        Consistência{`\n`}em números.
-      </ScreenHeading>
+      <ScreenHeading kicker="HISTORICO LOCAL">Consistencia{`\n`}em numeros.</ScreenHeading>
 
       <Surface style={[styles.historySummary, isWide && styles.historySummaryWide]}>
-        <Metric label="TREINOS" value="08" />
-        <Metric label="TEMPO" value="7H 42" />
-        <Metric label="VOLUME" value="61.830 KG" />
+        <Metric label="TREINOS" value={String(sessions.length).padStart(2, '0')} />
+        <Metric label="TEMPO" value={formatDuration(totalSeconds)} />
+        <Metric label="VOLUME" value={`${formatVolume(totalVolume)} KG`} />
       </Surface>
 
-      <SectionTitle title="Treinos concluídos" />
+      <SectionTitle title="Treinos concluidos" />
+      {!sessions.length ? <Text style={styles.empty}>Conclua uma sessao para registrar seu primeiro treino.</Text> : null}
       <View style={styles.list}>
-        {demoHistory.map((workout) => (
-          <View key={workout.date} style={[styles.historyRow, isWide && styles.historyRowWide]}>
-            <Text style={styles.historyDate}>{workout.date}</Text>
+        {sessions.map((session) => (
+          <View key={session.id} style={[styles.historyRow, isWide && styles.historyRowWide]}>
+            <Text style={styles.historyDate}>{formatDate(session.startedAt)}</Text>
             <View style={styles.historyMain}>
-              <Text style={styles.historyName}>{workout.routine}</Text>
-              <Text style={styles.historyMeta}>{workout.duration} · {workout.sets}</Text>
+              <Text style={styles.historyName}>{session.routineName}</Text>
+              <Text style={styles.historyMeta}>{formatDuration(session.durationSeconds ?? 0)} - {session.confirmedSets} series confirmadas</Text>
             </View>
             <View style={styles.historyVolumeWrap}>
-              <Text style={styles.historyVolume}>{workout.volume}</Text>
+              <Text style={styles.historyVolume}>{formatVolume(session.volumeKg)} KG</Text>
               <Text style={styles.historyVolumeLabel}>VOLUME</Text>
             </View>
-            <Button compact label="Detalhes" variant="text" />
           </View>
         ))}
       </View>
-      <Text style={styles.disclaimer}>
-        Dados de demonstração. Apenas séries confirmadas compõem volume e recordes.
-      </Text>
     </View>
   );
 }
 
+function formatDuration(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? `${hours}H ${String(minutes).padStart(2, '0')}` : `${minutes} MIN`;
+}
+
+function formatVolume(volume: number) {
+  return Math.round(volume).toLocaleString('pt-BR');
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' }).format(new Date(value)).replace('.', '').toUpperCase();
+}
+
 const styles = StyleSheet.create({
   screen: { width: '100%' },
-  historySummary: { paddingHorizontal: 20, marginBottom: spacing.xl },
+  historySummary: { marginBottom: spacing.xl, paddingHorizontal: 20 },
   historySummaryWide: { flexDirection: 'row' },
   list: { width: '100%' },
-  historyRow: { gap: 14, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 18 },
-  historyRowWide: { minHeight: 82, flexDirection: 'row', alignItems: 'center' },
+  empty: { ...typography.caption, color: colors.textMuted, marginTop: spacing.md },
+  historyRow: { borderBottomColor: colors.border, borderBottomWidth: 1, gap: 14, paddingVertical: 18 },
+  historyRowWide: { alignItems: 'center', flexDirection: 'row', minHeight: 82 },
   historyDate: { ...typography.caption, color: colors.accent, width: 58 },
   historyMain: { flex: 1 },
   historyName: { ...typography.body, color: colors.text, fontWeight: '700' },
@@ -63,6 +66,4 @@ const styles = StyleSheet.create({
   historyVolumeWrap: { minWidth: 120 },
   historyVolume: { color: colors.text, fontFamily: fontFamilies.mono, fontSize: 12, fontWeight: '700' },
   historyVolumeLabel: { ...typography.overline, color: colors.textMuted, fontSize: 8, marginTop: spacing.xxs },
-  disclaimer: { ...typography.overline, color: colors.textMuted, fontSize: 8, lineHeight: 14, marginTop: spacing.md },
 });
-
