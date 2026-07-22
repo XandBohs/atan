@@ -149,38 +149,38 @@ export function initializeOfflineStore() {
       create table if not exists app_metadata (key text primary key, value text not null);
       create table if not exists exercises (
         id text primary key, name text not null, instructions text not null, exercise_type text not null,
-        main_muscle text not null, equipment text, created_at text not null
+        main_muscle text not null, equipment text, created_at text not null, updated_at text not null, deleted_at text
       );
       create table if not exists routines (
-        id text primary key, name text not null, description text, created_at text not null, updated_at text not null
+        id text primary key, name text not null, description text, created_at text not null, updated_at text not null, deleted_at text
       );
       create table if not exists routine_exercises (
         id text primary key, routine_id text not null references routines(id) on delete cascade,
         exercise_id text not null references exercises(id), position integer not null, notes text,
-        created_at text not null, updated_at text not null, unique(routine_id, position)
+        created_at text not null, updated_at text not null, deleted_at text, unique(routine_id, position)
       );
       create table if not exists routine_sets (
         id text primary key, routine_exercise_id text not null references routine_exercises(id) on delete cascade,
         set_number integer not null, target_weight_kg real, target_repetitions integer, rest_seconds integer,
         target_duration_seconds integer, target_distance_meters real, notes text,
-        created_at text not null, updated_at text not null, unique(routine_exercise_id, set_number)
+        created_at text not null, updated_at text not null, deleted_at text, unique(routine_exercise_id, set_number)
       );
       create table if not exists workout_sessions (
         id text primary key, routine_id text references routines(id) on delete set null, device_id text not null,
         routine_name_snapshot text, status text not null, started_at text not null, completed_at text, duration_seconds integer, notes text,
-        created_at text not null, updated_at text not null
+        created_at text not null, updated_at text not null, deleted_at text
       );
       create table if not exists workout_exercises (
         id text primary key, session_id text not null references workout_sessions(id) on delete cascade,
         source_routine_exercise_id text, exercise_id text references exercises(id) on delete set null,
         position integer not null, exercise_name_snapshot text not null, main_muscle_snapshot text, notes text,
-        created_at text not null, updated_at text not null, unique(session_id, position)
+        created_at text not null, updated_at text not null, deleted_at text, unique(session_id, position)
       );
       create table if not exists workout_sets (
         id text primary key, workout_exercise_id text not null references workout_exercises(id) on delete cascade,
         set_number integer not null, weight_kg real, repetitions integer, rest_seconds integer,
         duration_seconds integer, distance_meters real, confirmed_at text, notes text,
-        created_at text not null, updated_at text not null, unique(workout_exercise_id, set_number)
+        created_at text not null, updated_at text not null, deleted_at text, unique(workout_exercise_id, set_number)
       );
       create table if not exists sync_operations (
         id text primary key, operation text not null, entity_type text not null, entity_id text not null,
@@ -191,17 +191,26 @@ export function initializeOfflineStore() {
       create index if not exists sync_operations_created_at_idx on sync_operations(created_at asc);
     `);
 
-    const sessionColumns = await db.getAllAsync<{ name: string }>('pragma table_info(workout_sessions)');
-    if (!sessionColumns.some((column) => column.name === 'routine_name_snapshot')) {
-      await db.execAsync('alter table workout_sessions add column routine_name_snapshot text');
-    }
-    await db.execAsync('pragma user_version = 1');
+    const ensureColumn = async (table: string, column: string, definition: string) => {
+      const columns = await db.getAllAsync<{ name: string }>(`pragma table_info(${table})`);
+      if (!columns.some((item) => item.name === column)) await db.execAsync(`alter table ${table} add column ${definition}`);
+    };
+    await ensureColumn('exercises', 'updated_at', 'updated_at text');
+    await ensureColumn('exercises', 'deleted_at', 'deleted_at text');
+    await ensureColumn('routines', 'deleted_at', 'deleted_at text');
+    await ensureColumn('routine_exercises', 'deleted_at', 'deleted_at text');
+    await ensureColumn('routine_sets', 'deleted_at', 'deleted_at text');
+    await ensureColumn('workout_sessions', 'routine_name_snapshot', 'routine_name_snapshot text');
+    await ensureColumn('workout_sessions', 'deleted_at', 'deleted_at text');
+    await ensureColumn('workout_exercises', 'deleted_at', 'deleted_at text');
+    await ensureColumn('workout_sets', 'deleted_at', 'deleted_at text');
+    await db.execAsync('pragma user_version = 2');
 
     for (const exercise of catalog) {
       await db.runAsync(
-        `insert or ignore into exercises (id, name, instructions, exercise_type, main_muscle, equipment, created_at)
-         values (?, ?, ?, ?, ?, ?, ?)`,
-        [exercise.id, exercise.name, exercise.instructions, exercise.exerciseType, exercise.mainMuscle, exercise.equipment, now()],
+        `insert or ignore into exercises (id, name, instructions, exercise_type, main_muscle, equipment, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [exercise.id, exercise.name, exercise.instructions, exercise.exerciseType, exercise.mainMuscle, exercise.equipment, now(), now()],
       );
     }
   })();
@@ -222,7 +231,7 @@ export async function getDeviceId() {
 export async function listExercises() {
   await initializeOfflineStore();
   const rows = await db.getAllAsync<{ id: string; name: string; main_muscle: string; equipment: string | null }>(
-    'select id, name, main_muscle, equipment from exercises order by name',
+    'select id, name, main_muscle, equipment from exercises where deleted_at is null order by name',
   );
   return rows.map((row) => ({ id: row.id, name: row.name, mainMuscle: row.main_muscle, equipment: row.equipment }));
 }
@@ -235,8 +244,9 @@ export async function listRoutines(): Promise<RoutineSummary[]> {
     select r.id, r.name, r.description, r.updated_at,
       count(distinct re.id) as exercise_count, count(rs.id) as set_count
     from routines r
-    left join routine_exercises re on re.routine_id = r.id
-    left join routine_sets rs on rs.routine_exercise_id = re.id
+    left join routine_exercises re on re.routine_id = r.id and re.deleted_at is null
+    left join routine_sets rs on rs.routine_exercise_id = re.id and rs.deleted_at is null
+    where r.deleted_at is null
     group by r.id
     order by r.updated_at desc
   `);
@@ -249,7 +259,7 @@ export async function listRoutines(): Promise<RoutineSummary[]> {
 export async function getRoutine(routineId: string): Promise<RoutineDetail | null> {
   await initializeOfflineStore();
   const routine = await db.getFirstAsync<{ id: string; name: string; description: string | null; updated_at: string }>(
-    'select id, name, description, updated_at from routines where id = ?', [routineId],
+    'select id, name, description, updated_at from routines where id = ? and deleted_at is null', [routineId],
   );
   if (!routine) return null;
 
@@ -258,13 +268,13 @@ export async function getRoutine(routineId: string): Promise<RoutineDetail | nul
   }>(`
     select re.id, re.exercise_id, e.name, e.main_muscle, re.position, re.notes
     from routine_exercises re join exercises e on e.id = re.exercise_id
-    where re.routine_id = ? order by re.position
+    where re.routine_id = ? and re.deleted_at is null and e.deleted_at is null order by re.position
   `, [routineId]);
   const setRows = await db.getAllAsync<{
     id: string; routine_exercise_id: string; set_number: number; target_weight_kg: number | null;
     target_repetitions: number | null; rest_seconds: number | null; target_duration_seconds: number | null;
     target_distance_meters: number | null; notes: string | null;
-  }>('select * from routine_sets where routine_exercise_id in (select id from routine_exercises where routine_id = ?) order by set_number', [routineId]);
+  }>('select * from routine_sets where deleted_at is null and routine_exercise_id in (select id from routine_exercises where routine_id = ? and deleted_at is null) order by set_number', [routineId]);
 
   return {
     id: routine.id, name: routine.name, description: routine.description, updatedAt: routine.updated_at,
@@ -288,7 +298,7 @@ export async function createRoutine(input: CreateRoutineInput) {
   if (!name) throw new Error('Informe um nome para a ficha.');
   const existingRoutines = await db.getFirstAsync<{ count: number }>('select count(*) as count from routines');
   if ((existingRoutines?.count ?? 0) >= 4) throw new Error('Voce pode manter no maximo 4 fichas neste dispositivo.');
-  const exercise = await db.getFirstAsync<{ id: string }>('select id from exercises where id = ?', [input.exerciseId]);
+  const exercise = await db.getFirstAsync<{ id: string }>('select id from exercises where id = ? and deleted_at is null', [input.exerciseId]);
   if (!exercise) throw new Error('Selecione um exercicio valido.');
 
   const timestamp = now();
@@ -323,14 +333,28 @@ export async function updateRoutine(routineId: string, input: UpdateRoutineInput
   const name = input.name.trim();
   if (!name) throw new Error('Informe um nome para a ficha.');
   const timestamp = now();
-  await db.runAsync('update routines set name = ?, description = ?, updated_at = ? where id = ?', [name, input.description?.trim() || null, timestamp, routineId]);
+  await db.runAsync('update routines set name = ?, description = ?, updated_at = ? where id = ? and deleted_at is null', [name, input.description?.trim() || null, timestamp, routineId]);
   await queueOperation('update', 'routine', routineId, { id: routineId, name, description: input.description?.trim() || null });
 }
 
 export async function deleteRoutine(routineId: string) {
   await initializeOfflineStore();
-  await db.runAsync('delete from routines where id = ?', [routineId]);
-  await queueOperation('delete', 'routine', routineId, { id: routineId });
+  const timestamp = now();
+  const exercises = await db.getAllAsync<{ id: string }>('select id from routine_exercises where routine_id = ? and deleted_at is null', [routineId]);
+  const exerciseIds = exercises.map((exercise) => exercise.id);
+  const sets = await db.getAllAsync<{ id: string }>('select id from routine_sets where routine_exercise_id in (select id from routine_exercises where routine_id = ?) and deleted_at is null', [routineId]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('update routines set deleted_at = ?, updated_at = ? where id = ? and deleted_at is null', [timestamp, timestamp, routineId]);
+    await db.runAsync('update routine_exercises set deleted_at = ?, updated_at = ? where routine_id = ? and deleted_at is null', [timestamp, timestamp, routineId]);
+    for (const exerciseId of exerciseIds) {
+      await db.runAsync('update routine_sets set deleted_at = ?, updated_at = ? where routine_exercise_id = ? and deleted_at is null', [timestamp, timestamp, exerciseId]);
+      await queueOperation('delete', 'routine_exercise', exerciseId, { id: exerciseId, deletedAt: timestamp });
+    }
+    for (const set of sets) {
+      await queueOperation('delete', 'routine_set', set.id, { id: set.id, deletedAt: timestamp });
+    }
+    await queueOperation('delete', 'routine', routineId, { id: routineId, deletedAt: timestamp });
+  });
 }
 
 export async function startWorkoutSession(routineId: string) {
@@ -380,7 +404,7 @@ export async function startWorkoutSession(routineId: string) {
 export async function getActiveWorkoutSession() {
   await initializeOfflineStore();
   const row = await db.getFirstAsync<{ id: string }>(
-    "select id from workout_sessions where status in ('active', 'draft') order by started_at desc limit 1",
+    "select id from workout_sessions where deleted_at is null and status in ('active', 'draft') order by started_at desc limit 1",
   );
   return row ? getWorkoutSession(row.id) : null;
 }
@@ -392,17 +416,17 @@ export async function getWorkoutSession(sessionId: string): Promise<WorkoutSessi
     started_at: string; completed_at: string | null; duration_seconds: number | null;
   }>(`
     select ws.id, ws.routine_id, coalesce(r.name, ws.routine_name_snapshot) as routine_name, ws.status, ws.started_at, ws.completed_at, ws.duration_seconds
-    from workout_sessions ws left join routines r on r.id = ws.routine_id where ws.id = ?
+    from workout_sessions ws left join routines r on r.id = ws.routine_id and r.deleted_at is null where ws.id = ? and ws.deleted_at is null
   `, [sessionId]);
   if (!session) return null;
 
   const exerciseRows = await db.getAllAsync<{
     id: string; exercise_name_snapshot: string; main_muscle_snapshot: string | null; position: number;
-  }>('select id, exercise_name_snapshot, main_muscle_snapshot, position from workout_exercises where session_id = ? order by position', [sessionId]);
+  }>('select id, exercise_name_snapshot, main_muscle_snapshot, position from workout_exercises where session_id = ? and deleted_at is null order by position', [sessionId]);
   const setRows = await db.getAllAsync<{
     id: string; workout_exercise_id: string; set_number: number; weight_kg: number | null; repetitions: number | null;
     rest_seconds: number | null; duration_seconds: number | null; distance_meters: number | null; notes: string | null; confirmed_at: string | null;
-  }>('select * from workout_sets where workout_exercise_id in (select id from workout_exercises where session_id = ?) order by set_number', [sessionId]);
+  }>('select * from workout_sets where deleted_at is null and workout_exercise_id in (select id from workout_exercises where session_id = ? and deleted_at is null) order by set_number', [sessionId]);
 
   return {
     id: session.id, routineId: session.routine_id, routineName: session.routine_name, status: session.status,
@@ -424,7 +448,7 @@ export async function updateWorkoutSet(setId: string, input: UpdateWorkoutSetInp
   const timestamp = now();
   await db.runAsync(
     `update workout_sets set weight_kg = ?, repetitions = ?, rest_seconds = ?, duration_seconds = ?, distance_meters = ?,
-     notes = ?, confirmed_at = ?, updated_at = ? where id = ?`,
+     notes = ?, confirmed_at = ?, updated_at = ? where id = ? and deleted_at is null`,
     [input.weightKg, input.repetitions, input.restSeconds, input.durationSeconds, input.distanceMeters,
       input.notes?.trim() || null, input.confirmed ? timestamp : null, timestamp, setId],
   );
@@ -439,7 +463,7 @@ export async function completeWorkoutSession(sessionId: string) {
   `, [sessionId]);
   if (!confirmed?.count) throw new Error('Confirme pelo menos uma serie antes de concluir.');
 
-  const session = await db.getFirstAsync<{ started_at: string }>('select started_at from workout_sessions where id = ?', [sessionId]);
+  const session = await db.getFirstAsync<{ started_at: string }>('select started_at from workout_sessions where id = ? and deleted_at is null', [sessionId]);
   if (!session) throw new Error('Sessao nao encontrada.');
   const completedAt = now();
   const durationSeconds = Math.max(0, Math.floor((Date.parse(completedAt) - Date.parse(session.started_at)) / 1000));
@@ -462,8 +486,21 @@ export async function saveWorkoutDraft(sessionId: string) {
 
 export async function discardWorkoutSession(sessionId: string) {
   await initializeOfflineStore();
-  await db.runAsync('delete from workout_sessions where id = ?', [sessionId]);
-  await queueOperation('delete', 'workout_session', sessionId, { id: sessionId });
+  const timestamp = now();
+  const exercises = await db.getAllAsync<{ id: string }>('select id from workout_exercises where session_id = ? and deleted_at is null', [sessionId]);
+  const sets = await db.getAllAsync<{ id: string }>('select id from workout_sets where workout_exercise_id in (select id from workout_exercises where session_id = ?) and deleted_at is null', [sessionId]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('update workout_sessions set deleted_at = ?, updated_at = ? where id = ? and deleted_at is null', [timestamp, timestamp, sessionId]);
+    await db.runAsync('update workout_exercises set deleted_at = ?, updated_at = ? where session_id = ? and deleted_at is null', [timestamp, timestamp, sessionId]);
+    await db.runAsync('update workout_sets set deleted_at = ?, updated_at = ? where workout_exercise_id in (select id from workout_exercises where session_id = ?) and deleted_at is null', [timestamp, timestamp, sessionId]);
+    for (const exercise of exercises) {
+      await queueOperation('delete', 'workout_exercise', exercise.id, { id: exercise.id, deletedAt: timestamp });
+    }
+    for (const set of sets) {
+      await queueOperation('delete', 'workout_set', set.id, { id: set.id, deletedAt: timestamp });
+    }
+    await queueOperation('delete', 'workout_session', sessionId, { id: sessionId, deletedAt: timestamp });
+  });
 }
 
 export async function listHistory(): Promise<HistoryEntry[]> {
@@ -476,10 +513,10 @@ export async function listHistory(): Promise<HistoryEntry[]> {
       count(wset.id) as confirmed_sets,
       coalesce(sum(coalesce(wset.weight_kg, 0) * coalesce(wset.repetitions, 0)), 0) as volume_kg
     from workout_sessions ws
-    left join routines r on r.id = ws.routine_id
-    left join workout_exercises we on we.session_id = ws.id
-    left join workout_sets wset on wset.workout_exercise_id = we.id and wset.confirmed_at is not null
-    where ws.status = 'completed'
+    left join routines r on r.id = ws.routine_id and r.deleted_at is null
+    left join workout_exercises we on we.session_id = ws.id and we.deleted_at is null
+    left join workout_sets wset on wset.workout_exercise_id = we.id and wset.confirmed_at is not null and wset.deleted_at is null
+    where ws.status = 'completed' and ws.deleted_at is null
     group by ws.id
     order by ws.completed_at desc
   `);

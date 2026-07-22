@@ -18,7 +18,8 @@ create table public.profiles (
   description text,
   visibility public.profile_visibility not null default 'private',
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
 );
 
 create table public.exercises (
@@ -31,7 +32,8 @@ create table public.exercises (
   equipment text,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
 );
 
 create table public.routines (
@@ -42,6 +44,7 @@ create table public.routines (
   is_archived boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
   constraint routines_name_not_blank check (length(trim(name)) > 0)
 );
 
@@ -53,6 +56,7 @@ create table public.routine_exercises (
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
   unique (routine_id, position),
   unique (routine_id, exercise_id)
 );
@@ -69,6 +73,7 @@ create table public.routine_sets (
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
   unique (routine_exercise_id, set_number)
 );
 
@@ -84,6 +89,7 @@ create table public.workout_sessions (
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
   constraint completed_session_has_date check (status <> 'completed' or completed_at is not null)
 );
 
@@ -97,6 +103,7 @@ create table public.workout_exercises (
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
   unique (session_id, position)
 );
 
@@ -113,11 +120,14 @@ create table public.workout_sets (
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
   unique (workout_exercise_id, set_number)
 );
 
 create index routines_user_id_idx on public.routines (user_id);
+create index routines_active_user_id_idx on public.routines (user_id) where deleted_at is null;
 create index workout_sessions_user_date_idx on public.workout_sessions (user_id, started_at desc);
+create index workout_sessions_active_user_date_idx on public.workout_sessions (user_id, started_at desc) where deleted_at is null;
 create index workout_exercises_session_id_idx on public.workout_exercises (session_id);
 create index workout_sets_confirmed_at_idx on public.workout_sets (confirmed_at) where confirmed_at is not null;
 create unique index one_active_session_per_device_idx
@@ -176,7 +186,7 @@ returns trigger
 language plpgsql
 as $$
 begin
-  if (select count(*) from public.routines where user_id = new.user_id and not is_archived) >= 4 then
+  if (select count(*) from public.routines where user_id = new.user_id and not is_archived and deleted_at is null) >= 4 then
     raise exception 'A user can have at most 4 active routines';
   end if;
   return new;
@@ -192,7 +202,7 @@ returns trigger
 language plpgsql
 as $$
 begin
-  if (select count(*) from public.routine_exercises where routine_id = new.routine_id) >= 10 then
+  if (select count(*) from public.routine_exercises where routine_id = new.routine_id and deleted_at is null) >= 10 then
     raise exception 'A routine can have at most 10 exercises';
   end if;
   return new;
@@ -215,21 +225,42 @@ alter table public.workout_sets enable row level security;
 create policy "Users can read their own profile" on public.profiles for select using (auth.uid() = id);
 create policy "Users can insert their own profile" on public.profiles for insert with check (auth.uid() = id);
 create policy "Users can update their own profile" on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);
-create policy "Anyone can read active exercises" on public.exercises for select using (is_active = true);
+create policy "Authenticated users can read active exercises" on public.exercises for select
+using (auth.role() = 'authenticated' and is_active = true and deleted_at is null);
 
-create policy "Users can manage their routines" on public.routines for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "Users can manage exercises in their routines" on public.routine_exercises for all
+create policy "Users can read their own routines" on public.routines for select using (auth.uid() = user_id);
+create policy "Users can create their own routines" on public.routines for insert with check (auth.uid() = user_id);
+create policy "Users can update their own routines" on public.routines for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "Users can read exercises in their routines" on public.routine_exercises for select
+using (exists (select 1 from public.routines r where r.id = routine_id and r.user_id = auth.uid()));
+create policy "Users can create exercises in their routines" on public.routine_exercises for insert
+with check (exists (select 1 from public.routines r where r.id = routine_id and r.user_id = auth.uid()));
+create policy "Users can update exercises in their routines" on public.routine_exercises for update
 using (exists (select 1 from public.routines r where r.id = routine_id and r.user_id = auth.uid()))
 with check (exists (select 1 from public.routines r where r.id = routine_id and r.user_id = auth.uid()));
-create policy "Users can manage sets in their routines" on public.routine_sets for all
+create policy "Users can read sets in their routines" on public.routine_sets for select
+using (exists (select 1 from public.routine_exercises re join public.routines r on r.id = re.routine_id where re.id = routine_exercise_id and r.user_id = auth.uid()));
+create policy "Users can create sets in their routines" on public.routine_sets for insert
+with check (exists (select 1 from public.routine_exercises re join public.routines r on r.id = re.routine_id where re.id = routine_exercise_id and r.user_id = auth.uid()));
+create policy "Users can update sets in their routines" on public.routine_sets for update
 using (exists (select 1 from public.routine_exercises re join public.routines r on r.id = re.routine_id where re.id = routine_exercise_id and r.user_id = auth.uid()))
 with check (exists (select 1 from public.routine_exercises re join public.routines r on r.id = re.routine_id where re.id = routine_exercise_id and r.user_id = auth.uid()));
 
-create policy "Users can manage their workout sessions" on public.workout_sessions for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "Users can manage exercises in their sessions" on public.workout_exercises for all
+create policy "Users can read their own workout sessions" on public.workout_sessions for select using (auth.uid() = user_id);
+create policy "Users can create their own workout sessions" on public.workout_sessions for insert with check (auth.uid() = user_id);
+create policy "Users can update their own workout sessions" on public.workout_sessions for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "Users can read exercises in their sessions" on public.workout_exercises for select
+using (exists (select 1 from public.workout_sessions ws where ws.id = session_id and ws.user_id = auth.uid()));
+create policy "Users can create exercises in their sessions" on public.workout_exercises for insert
+with check (exists (select 1 from public.workout_sessions ws where ws.id = session_id and ws.user_id = auth.uid()));
+create policy "Users can update exercises in their sessions" on public.workout_exercises for update
 using (exists (select 1 from public.workout_sessions ws where ws.id = session_id and ws.user_id = auth.uid()))
 with check (exists (select 1 from public.workout_sessions ws where ws.id = session_id and ws.user_id = auth.uid()));
-create policy "Users can manage sets in their sessions" on public.workout_sets for all
+create policy "Users can read sets in their sessions" on public.workout_sets for select
+using (exists (select 1 from public.workout_exercises we join public.workout_sessions ws on ws.id = we.session_id where we.id = workout_exercise_id and ws.user_id = auth.uid()));
+create policy "Users can create sets in their sessions" on public.workout_sets for insert
+with check (exists (select 1 from public.workout_exercises we join public.workout_sessions ws on ws.id = we.session_id where we.id = workout_exercise_id and ws.user_id = auth.uid()));
+create policy "Users can update sets in their sessions" on public.workout_sets for update
 using (exists (select 1 from public.workout_exercises we join public.workout_sessions ws on ws.id = we.session_id where we.id = workout_exercise_id and ws.user_id = auth.uid()))
 with check (exists (select 1 from public.workout_exercises we join public.workout_sessions ws on ws.id = we.session_id where we.id = workout_exercise_id and ws.user_id = auth.uid()));
 
