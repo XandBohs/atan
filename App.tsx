@@ -1,8 +1,8 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Animated, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, AppState, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import type { Session } from '@supabase/supabase-js';
+import type { RealtimeChannel, Session } from '@supabase/supabase-js';
 import { supabase } from './utils/supabase/client';
 import { AppHeader, BottomNavigation, SideNavigation } from './src/components/app-navigation';
 import {
@@ -29,6 +29,8 @@ import { colors, sizes, spacing } from './src/design-system';
 import type { AppTab } from './src/navigation/tabs';
 import { useSectionNavigation } from './src/navigation/use-section-navigation';
 import { HistoryScreen, HomeScreen, LoginScreen, ProfileScreen, RoutinesScreen, WorkoutScreen } from './src/screens';
+import { getCachedProfilePhoto } from './src/data/profile-photo-cache';
+import { synchronizeProfilePhoto } from './src/data/profile-storage';
 
 export default function App() {
   return (
@@ -49,6 +51,7 @@ function AppContent() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutSession | null>(null);
   const [isWorkoutOpen, setIsWorkoutOpen] = useState(false);
+  const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const { animatedStyle, navigateTo, panHandlers } = useSectionNavigation({
     activeTab,
     isWide,
@@ -61,9 +64,13 @@ function AppContent() {
 
     async function syncSession(nextSession: Session | null) {
       if (!isMounted) return;
+      const userId = nextSession?.user.id;
+      const cachedPhoto = userId ? await getCachedProfilePhoto(userId) : null;
+      if (!isMounted) return;
       setSession(nextSession);
-      if (nextSession?.user.id) {
-        await prepareOfflineStoreForUser(nextSession.user.id);
+      setProfilePhotoUri(cachedPhoto?.uri ?? null);
+      if (userId) {
+        await prepareOfflineStoreForUser(userId);
         await refreshLocalData();
       }
     }
@@ -85,6 +92,44 @@ function AppContent() {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId) return;
+    const profileUserId = userId;
+
+    let active = true;
+    let channel: RealtimeChannel | null = null;
+
+    async function refreshProfilePhoto(avatarPath?: string | null) {
+      try {
+        const uri = await synchronizeProfilePhoto(profileUserId, avatarPath);
+        if (active) setProfilePhotoUri(uri);
+      } catch {
+        // Keep the cached image visible when the device is offline or a refresh fails.
+      }
+    }
+
+    void refreshProfilePhoto();
+    channel = supabase
+      .channel(`profile-photo:${profileUserId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${profileUserId}` },
+        (payload) => void refreshProfilePhoto((payload.new as { avatar_path?: string | null }).avatar_path ?? null),
+      )
+      .subscribe();
+
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refreshProfilePhoto();
+    });
+
+    return () => {
+      active = false;
+      appStateSubscription.remove();
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [session?.user.id]);
 
   async function refreshLocalData() {
     const [nextRoutines, nextExercises, nextHistory, nextActiveWorkout] = await Promise.all([
@@ -192,7 +237,7 @@ function AppContent() {
             ) : null}
             {activeTab === 'fichas' ? <RoutinesScreen exercises={exercises} isWide={isWide} onCreateRoutine={handleCreateRoutine} routines={routines} /> : null}
             {activeTab === 'historico' ? <HistoryScreen isWide={isWide} sessions={history} /> : null}
-            {activeTab === 'perfil' ? <ProfileScreen email={session.user.email ?? ''} isWide={isWide} onLogout={handleLogout} /> : null}
+            {activeTab === 'perfil' ? <ProfileScreen avatarUri={profilePhotoUri} email={session.user.email ?? ''} isWide={isWide} onAvatarChange={setProfilePhotoUri} onLogout={handleLogout} userId={session.user.id} /> : null}
           </ScrollView>
         </Animated.View>
 

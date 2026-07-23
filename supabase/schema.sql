@@ -11,6 +11,7 @@ create table public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   name text,
   avatar_url text,
+  avatar_path text,
   birth_date date,
   sex text check (sex is null or sex in ('female', 'male', 'non_binary', 'prefer_not_to_say')),
   current_weight_kg numeric(6, 2) check (current_weight_kg is null or current_weight_kg > 0),
@@ -26,6 +27,7 @@ create table public.exercises (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   image_url text,
+  image_path text,
   instructions text,
   exercise_type public.exercise_type not null,
   main_muscle text not null,
@@ -263,6 +265,26 @@ with check (exists (select 1 from public.workout_exercises we join public.workou
 create policy "Users can update sets in their sessions" on public.workout_sets for update
 using (exists (select 1 from public.workout_exercises we join public.workout_sessions ws on ws.id = we.session_id where we.id = workout_exercise_id and ws.user_id = auth.uid()))
 with check (exists (select 1 from public.workout_exercises we join public.workout_sessions ws on ws.id = we.session_id where we.id = workout_exercise_id and ws.user_id = auth.uid()));
+
+-- Storage: profile images are private and exercise images are public catalog assets.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values
+  ('profile-photos', 'profile-photos', false, 5242880, array['image/jpeg', 'image/png', 'image/webp']),
+  ('exercise-images', 'exercise-images', true, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+create policy "Users can read their profile photo" on storage.objects for select to authenticated
+using (bucket_id = 'profile-photos' and (storage.foldername(name))[1] = 'profiles' and (storage.foldername(name))[2] = (select auth.uid()::text));
+create policy "Users can upload their profile photo" on storage.objects for insert to authenticated
+with check (bucket_id = 'profile-photos' and (storage.foldername(name))[1] = 'profiles' and (storage.foldername(name))[2] = (select auth.uid()::text));
+create policy "Users can update their profile photo" on storage.objects for update to authenticated
+using (bucket_id = 'profile-photos' and (storage.foldername(name))[1] = 'profiles' and (storage.foldername(name))[2] = (select auth.uid()::text))
+with check (bucket_id = 'profile-photos' and (storage.foldername(name))[1] = 'profiles' and (storage.foldername(name))[2] = (select auth.uid()::text));
+create policy "Users can delete their profile photo" on storage.objects for delete to authenticated
+using (bucket_id = 'profile-photos' and (storage.foldername(name))[1] = 'profiles' and (storage.foldername(name))[2] = (select auth.uid()::text));
 
 insert into public.exercises (name, instructions, exercise_type, main_muscle, equipment)
 values
