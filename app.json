@@ -41,7 +41,8 @@
         {
           "photosPermission": "Permita que o Ata acesse sua galeria para definir a foto de perfil."
         }
-      ]
+      ],
+      "expo-secure-store"
     ]
   }
 }
