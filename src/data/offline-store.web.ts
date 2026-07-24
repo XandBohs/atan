@@ -101,6 +101,21 @@ export async function prepareOfflineStoreForUser(userId: string) {
   await writeDatabase(database);
 }
 
+export async function clearOfflineStoreForDeletedUser(userId: string) {
+  const database = await readDatabase();
+  if (database.authUserId !== userId) return;
+
+  database.authUserId = null;
+  database.routines = [];
+  database.routineExercises = [];
+  database.routineSets = [];
+  database.sessions = [];
+  database.workoutExercises = [];
+  database.workoutSets = [];
+  database.syncOperations = [];
+  await writeDatabase(database);
+}
+
 export async function listExercises() {
   return [...catalog].sort((first, second) => first.name.localeCompare(second.name));
 }

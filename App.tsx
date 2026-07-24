@@ -6,6 +6,7 @@ import type { RealtimeChannel, Session } from '@supabase/supabase-js';
 import { supabase } from './utils/supabase/client';
 import { AppHeader, BottomNavigation, SideNavigation } from './src/components/app-navigation';
 import {
+  clearOfflineStoreForDeletedUser,
   completeWorkoutSession,
   createRoutine,
   getActiveWorkoutSession,
@@ -29,7 +30,7 @@ import { colors, sizes, spacing } from './src/design-system';
 import type { AppTab } from './src/navigation/tabs';
 import { useSectionNavigation } from './src/navigation/use-section-navigation';
 import { HistoryScreen, HomeScreen, LoginScreen, ProfileScreen, RoutinesScreen, WorkoutScreen } from './src/screens';
-import { getCachedProfilePhoto } from './src/data/profile-photo-cache';
+import { clearCachedProfilePhoto, getCachedProfilePhoto } from './src/data/profile-photo-cache';
 import { synchronizeProfilePhoto } from './src/data/profile-storage';
 
 export default function App() {
@@ -148,6 +149,36 @@ function AppContent() {
     setIsWorkoutOpen(false);
   }
 
+  async function handleDeleteAccount() {
+    const userId = session?.user.id;
+    if (!userId) throw new Error('Nenhuma conta autenticada foi encontrada.');
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) throw new Error('Sua sessao expirou. Entre novamente para excluir a conta.');
+
+    const { error } = await supabase.functions.invoke('delete-account', {
+      body: { confirmation: 'DELETE_ACCOUNT' },
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (error) {
+      const response = (error as { context?: Response }).context;
+      const payload = response ? await response.clone().json().catch(() => null) as { error?: string } | null : null;
+      throw new Error(payload?.error ?? error.message);
+    }
+
+    await Promise.all([
+      clearCachedProfilePhoto(userId),
+      clearOfflineStoreForDeletedUser(userId),
+    ]);
+    await supabase.auth.signOut({ scope: 'local' });
+    setActiveTab('inicio');
+    setActiveWorkout(null);
+    setIsWorkoutOpen(false);
+    setProfilePhotoUri(null);
+    setSession(null);
+  }
+
   async function handleCreateRoutine(input: CreateRoutineInput) {
     await createRoutine(input);
     await refreshLocalData();
@@ -237,7 +268,7 @@ function AppContent() {
             ) : null}
             {activeTab === 'fichas' ? <RoutinesScreen exercises={exercises} isWide={isWide} onCreateRoutine={handleCreateRoutine} routines={routines} /> : null}
             {activeTab === 'historico' ? <HistoryScreen isWide={isWide} sessions={history} /> : null}
-            {activeTab === 'perfil' ? <ProfileScreen avatarUri={profilePhotoUri} email={session.user.email ?? ''} isWide={isWide} onAvatarChange={setProfilePhotoUri} onLogout={handleLogout} userId={session.user.id} /> : null}
+            {activeTab === 'perfil' ? <ProfileScreen avatarUri={profilePhotoUri} email={session.user.email ?? ''} isWide={isWide} onAvatarChange={setProfilePhotoUri} onDeleteAccount={handleDeleteAccount} onLogout={handleLogout} userId={session.user.id} /> : null}
           </ScrollView>
         </Animated.View>
 

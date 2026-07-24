@@ -251,6 +251,25 @@ export async function prepareOfflineStoreForUser(userId: string) {
   });
 }
 
+export async function clearOfflineStoreForDeletedUser(userId: string) {
+  await initializeOfflineStore();
+  const stored = await db.getFirstAsync<{ value: string }>('select value from app_metadata where key = ?', ['auth_user_id']);
+  if (stored?.value !== userId) return;
+
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      delete from sync_operations;
+      delete from workout_sets;
+      delete from workout_exercises;
+      delete from workout_sessions;
+      delete from routine_sets;
+      delete from routine_exercises;
+      delete from routines;
+    `);
+    await db.runAsync("delete from app_metadata where key = 'auth_user_id'");
+  });
+}
+
 export async function listExercises() {
   await initializeOfflineStore();
   const rows = await db.getAllAsync<{ id: string; name: string; main_muscle: string; equipment: string | null }>(

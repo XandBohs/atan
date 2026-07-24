@@ -10,16 +10,21 @@ import {
   SectionTitle,
   spacing,
   Surface,
+  TextField,
   typography,
 } from '../design-system';
 
-export function ProfileScreen({ avatarUri, email, isWide, onAvatarChange, onLogout, userId }: { avatarUri: string | null; email: string; isWide: boolean; onAvatarChange: (uri: string | null) => void; onLogout: () => Promise<void>; userId: string }) {
+export function ProfileScreen({ avatarUri, email, isWide, onAvatarChange, onDeleteAccount, onLogout, userId }: { avatarUri: string | null; email: string; isWide: boolean; onAvatarChange: (uri: string | null) => void; onDeleteAccount: () => Promise<void>; onLogout: () => Promise<void>; userId: string }) {
   const [showSettings, setShowSettings] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [avatarError, setAvatarError] = useState('');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isRemovingAvatar, setIsRemovingAvatar] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   async function logout() {
     setIsLoggingOut(true);
@@ -53,6 +58,17 @@ export function ProfileScreen({ avatarUri, email, isWide, onAvatarChange, onLogo
       setAvatarError(error instanceof Error ? error.message : 'Nao foi possivel retirar sua foto.');
     } finally {
       setIsRemovingAvatar(false);
+    }
+  }
+
+  async function deleteAccount() {
+    setDeleteError('');
+    setIsDeletingAccount(true);
+    try {
+      await onDeleteAccount();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Nao foi possivel excluir sua conta.');
+      setIsDeletingAccount(false);
     }
   }
 
@@ -90,6 +106,13 @@ export function ProfileScreen({ avatarUri, email, isWide, onAvatarChange, onLogo
           <Text style={styles.settingsNote}>
             Estas preferências representam o comportamento planejado para o MVP.
           </Text>
+          <Button
+            compact
+            label="Excluir conta"
+            onPress={() => { setDeleteConfirmation(''); setDeleteError(''); setIsDeleteModalOpen(true); }}
+            style={styles.deleteAccountButton}
+            variant="danger"
+          />
         </Surface>
       ) : (
         <>
@@ -155,6 +178,29 @@ export function ProfileScreen({ avatarUri, email, isWide, onAvatarChange, onLogo
           </View>
         </View>
       </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => !isDeletingAccount && setIsDeleteModalOpen(false)}
+        transparent
+        visible={isDeleteModalOpen}
+      >
+        <View style={styles.photoModal}>
+          <BlurView intensity={72} style={StyleSheet.absoluteFill} tint="dark" />
+          {!isDeletingAccount ? <Pressable accessibilityLabel="Fechar exclusao de conta" onPress={() => setIsDeleteModalOpen(false)} style={StyleSheet.absoluteFill} /> : null}
+          <Surface style={styles.deleteModalContent}>
+            <Text style={styles.deleteModalIndex}>EXCLUSAO DEFINITIVA</Text>
+            <Text style={styles.deleteModalTitle}>Excluir sua conta?</Text>
+            <Text style={styles.deleteModalDescription}>Todos os treinos, fichas, sessoes e fotos serao apagados permanentemente. Esta acao nao pode ser desfeita.</Text>
+            <TextField autoCapitalize="characters" label="Digite EXCLUIR para confirmar" onChangeText={setDeleteConfirmation} placeholder="EXCLUIR" value={deleteConfirmation} />
+            {deleteError ? <Text accessibilityRole="alert" style={styles.avatarError}>{deleteError}</Text> : null}
+            <View style={styles.deleteModalActions}>
+              <Button compact disabled={isDeletingAccount} label="Cancelar" onPress={() => setIsDeleteModalOpen(false)} style={styles.photoModalAction} variant="outline" />
+              <Button compact disabled={deleteConfirmation !== 'EXCLUIR'} label={isDeletingAccount ? 'Excluindo...' : 'Excluir conta'} loading={isDeletingAccount} onPress={deleteAccount} style={styles.photoModalAction} variant="danger" />
+            </View>
+          </Surface>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -212,6 +258,7 @@ const styles = StyleSheet.create({
   settingLabel: { ...typography.label, flex: 1, color: colors.text },
   settingValue: { ...typography.caption, color: colors.textMuted, textAlign: 'right' },
   settingsNote: { ...typography.overline, color: colors.textMuted, fontSize: 8, lineHeight: 14, marginTop: 18 },
+  deleteAccountButton: { alignSelf: 'flex-start', marginTop: spacing.lg },
   disclaimer: { ...typography.overline, color: colors.textMuted, fontSize: 8, lineHeight: 14, marginTop: spacing.md },
   logoutButton: { marginTop: 30 },
   photoModal: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(11, 12, 10, 0.48)', padding: spacing.lg },
@@ -222,5 +269,10 @@ const styles = StyleSheet.create({
   photoModalActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, width: '100%' },
   photoModalAction: { flex: 1 },
   photoModalHint: { ...typography.overline, color: colors.textMuted, marginTop: spacing.md },
+  deleteModalContent: { maxWidth: 440, padding: spacing.lg, width: '100%' },
+  deleteModalIndex: { ...typography.overline, color: colors.danger, marginBottom: spacing.md },
+  deleteModalTitle: { ...typography.sectionTitle, color: colors.text, fontSize: 24 },
+  deleteModalDescription: { ...typography.bodyLarge, color: colors.textMuted, marginBottom: spacing.lg, marginTop: spacing.sm },
+  deleteModalActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },
 });
 
